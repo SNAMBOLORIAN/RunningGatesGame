@@ -1,0 +1,799 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Gate Rush">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<title>Gate Rush</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bungee&family=Rubik:wght@400;600;800&display=swap">
+<style>
+/* Layout: one full-screen canvas road with DOM overlays for menus and a top HUD. Single dusk-arcade theme by choice. */
+:root {
+  --sky-top: #1b1340;
+  --sky-low: #ff8a5b;
+  --ink: #fff7ec;
+  --muted: #cbbfe6;
+  --panel: rgba(27, 19, 64, 0.86);
+  --hero: #facc15;
+  --good: #34d399;
+  --bad: #fb7185;
+  --foe: #a855f7;
+  --display: "Bungee", "Impact", "Arial Black", sans-serif;
+  --body: "Rubik", system-ui, -apple-system, sans-serif;
+  color-scheme: dark;
+}
+/* keep hidden screens truly hidden, even when this file is opened on its own */
+[hidden] { display: none !important; }
+html, body { height: 100%; margin: 0; }
+body {
+  background: var(--sky-top);
+  color: var(--ink);
+  font-family: var(--body);
+  overflow: hidden;
+  -webkit-user-select: none; user-select: none;
+  -webkit-tap-highlight-color: transparent;
+}
+#stage { position: relative; height: 100%; width: 100%; }
+canvas { display: block; width: 100%; height: 100%; touch-action: none; }
+.hud {
+  position: absolute; top: 10px; left: 0; right: 0;
+  display: flex; justify-content: space-between; align-items: center;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  pointer-events: none; font-family: var(--display); font-size: 15px; letter-spacing: 0.04em;
+}
+.hud .chip { background: var(--panel); padding: 6px 12px; border-radius: 999px; }
+.hud .chip b { color: var(--hero); font-weight: 400; }
+.overlay {
+  position: absolute; inset: 0; display: grid; place-items: center;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  background: rgba(15, 10, 40, 0.55);
+}
+.card {
+  background: var(--panel); border: 2px solid rgba(250, 204, 21, 0.35);
+  border-radius: 18px; padding: 26px 24px; max-width: 360px; width: 100%;
+  display: flex; flex-direction: column; gap: 14px; text-align: center;
+}
+.card h1 {
+  font-family: var(--display); font-weight: 400; font-size: clamp(34px, 11vw, 48px);
+  line-height: 1; margin: 0; color: var(--hero); text-wrap: balance;
+  text-shadow: 0 4px 0 #b4530a;
+}
+.card h2 { font-family: var(--display); font-weight: 400; font-size: 26px; margin: 0; text-wrap: balance; }
+.card p { margin: 0; color: var(--muted); line-height: 1.5; font-size: 15px; }
+.legend { display: flex; justify-content: center; gap: 8px; flex-wrap: wrap; }
+.legend span { font-family: var(--display); font-size: 13px; padding: 4px 10px; border-radius: 8px; color: #1b1340; }
+.legend .g { background: var(--good); }
+.legend .b { background: var(--bad); }
+.legend .f { background: var(--foe); color: var(--ink); }
+button {
+  font-family: var(--display); font-size: 20px; letter-spacing: 0.04em;
+  background: var(--hero); color: #1b1340; border: 0; border-radius: 14px;
+  padding: 14px 18px; cursor: pointer; box-shadow: 0 5px 0 #b4530a;
+}
+button:active { transform: translateY(3px); box-shadow: 0 2px 0 #b4530a; }
+button:focus-visible { outline: 3px solid var(--ink); outline-offset: 3px; }
+.small { font-size: 13px; color: var(--muted); }
+.hud .mute {
+  pointer-events: auto; font-size: 13px; padding: 7px 12px; border-radius: 999px;
+  background: var(--panel); color: var(--ink); box-shadow: none; border: 1px solid rgba(250, 204, 21, 0.35);
+}
+.hud .mute:active { transform: none; box-shadow: none; }
+.hud .mute[aria-pressed="true"] { color: var(--muted); }
+.coin {
+  display: inline-block; width: 12px; height: 12px; border-radius: 50%; margin-right: 6px; vertical-align: -1px;
+  background: var(--hero); box-shadow: inset 0 -2px 0 #b4530a;
+}
+/* overlays scroll when a card is taller than the screen; auto margins center it when it fits */
+.overlay { display: flex; flex-direction: column; align-items: center; overflow-y: auto; -webkit-overflow-scrolling: touch; padding-block: 12px; }
+.card { margin: auto 0; flex-shrink: 0; }
+#shopDone { position: sticky; bottom: 0; z-index: 1; }
+.ghost {
+  background: transparent; color: var(--muted); box-shadow: none;
+  border: 2px solid rgba(203, 191, 230, 0.35); font-size: 14px; padding: 10px 14px;
+}
+.ghost:active { transform: none; box-shadow: none; }
+.ghost[data-armed], .hud .mute[data-armed] { color: var(--bad); border-color: var(--bad); }
+.hud-mid { display: flex; gap: 6px; }
+.shop-card { max-width: 420px; }
+.wallet { font-family: var(--display); font-size: 18px; color: var(--hero); }
+.upgrades { display: flex; flex-direction: column; gap: 10px; text-align: left; }
+.upg {
+  display: grid; grid-template-columns: 1fr auto; gap: 6px 12px; align-items: center;
+  background: rgba(255, 255, 255, 0.06); border-radius: 12px; padding: 12px;
+}
+.upg > div:first-child { min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.upg h3 { margin: 0; font-family: var(--display); font-weight: 400; font-size: 15px; letter-spacing: 0.03em; }
+.upg p { font-size: 13px; line-height: 1.35; }
+.upg .fx { color: var(--good); }
+.pips { grid-column: 1 / -1; display: flex; gap: 3px; }
+.pip { flex: 1; max-width: 22px; height: 5px; border-radius: 3px; background: rgba(255, 255, 255, 0.15); }
+.pip.on { background: var(--good); }
+.buy { font-size: 13px; padding: 9px 12px; box-shadow: 0 3px 0 #b4530a; white-space: nowrap; }
+.buy:disabled { opacity: 0.4; cursor: not-allowed; }
+</style>
+</head>
+<body>
+
+<div id="stage">
+  <canvas id="c" aria-label="Gate Rush game"></canvas>
+  <div class="hud" id="hud" hidden>
+    <div class="chip">LEVEL <b id="hudLevel">1</b></div>
+    <div class="hud-mid">
+      <button class="mute" id="muteBtn" aria-pressed="false">♪ MUSIC ON</button>
+      <button class="mute restart" id="restartHud" data-label="↺" aria-label="Restart from level 1">↺</button>
+    </div>
+    <div class="chip"><span class="coin"></span><b id="hudCoins">0</b></div>
+  </div>
+
+  <div class="overlay" id="menu">
+    <div class="card">
+      <h1>Gate Rush</h1>
+      <p>Swipe or tap left and right to switch lanes. Run through the gates that grow your crowd, dodge the purple squads, and outnumber the boss at the finish.</p>
+      <div class="legend"><span class="g">+ ×</span><span class="b">− ÷</span><span class="f">ENEMY</span></div>
+      <button id="startBtn">Play</button>
+      <button class="ghost restart" id="restartMenu" data-label="Restart from level 1">Restart from level 1</button>
+      <p class="small" id="menuStats"></p>
+      <p class="small">Keyboard: ← → or A / D</p>
+    </div>
+  </div>
+
+  <div class="overlay" id="endScreen" hidden>
+    <div class="card">
+      <h2 id="endTitle">Level cleared</h2>
+      <p id="endText"></p>
+      <button id="endBtn">Next level</button>
+      <button class="ghost restart" id="restartEnd" data-label="Restart from level 1">Restart from level 1</button>
+    </div>
+  </div>
+
+  <div class="overlay" id="shop" hidden>
+    <div class="card shop-card">
+      <h2>Upgrade Shop</h2>
+      <p>Upgrades are permanent. The shop opens after every 5 levels, so spend wisely.</p>
+      <div class="wallet"><span class="coin"></span><span id="shopCoins">0</span> coins</div>
+      <div class="upgrades" id="upgList"></div>
+      <button id="shopDone">Continue</button>
+    </div>
+  </div>
+</div>
+
+<script>
+(() => {
+  const canvas = document.getElementById('c');
+  const ctx = canvas.getContext('2d');
+  const $ = id => document.getElementById(id);
+  const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  const C = {
+    skyTop: '#1b1340', skyMid: '#5b2a86', skyLow: '#ff8a5b',
+    ground: '#2a2350', road: '#3d3570', roadEdge: '#fff7ec', stripe: 'rgba(255,247,236,0.35)',
+    hero: '#facc15', heroDark: '#b4530a', good: '#34d399', bad: '#fb7185', foe: '#a855f7', foeDark: '#6b21a8',
+    ink: '#fff7ec', inkDark: '#1b1340'
+  };
+  const DISPLAY = '"Bungee", "Impact", "Arial Black", sans-serif';
+
+  let W = 0, H = 0, DPR = 1;
+  function resize() {
+    DPR = Math.min(window.devicePixelRatio || 1, 2);
+    const r = canvas.getBoundingClientRect();
+    W = r.width; H = r.height;
+    canvas.width = Math.round(W * DPR); canvas.height = Math.round(H * DPR);
+    ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+  }
+  window.addEventListener('resize', resize);
+
+  // ---------- persistence (per-viewer convenience only) ----------
+  function loadBest() { try { return parseInt(localStorage.getItem('gateRushBest') || '1', 10) || 1; } catch (e) { return 1; } }
+  function saveBest(v) { try { localStorage.setItem('gateRushBest', String(v)); } catch (e) {} }
+
+  // ---------- game state ----------
+  const LANES = [-1, 0, 1];
+  const VIEW = 170, PERSP = 16, SPEED_BASE = 24;
+  let mode = 'menu', level = 1, best = loadBest();
+  let count = 10, dist = 0, laneIdx = 1, px = 0, speed = SPEED_BASE;
+  let objects = [], floaters = [], shake = 0, battle = null, trackLen = 0;
+  let levelCoins = 0, shopNext = false;
+
+  // ---------- coins and permanent upgrades ----------
+  const UPGRADES = [
+    { id: 'start', name: 'Bigger Squad', desc: 'More runners at the start of every level.', max: 10, base: 60, fx: r => (10 + 5 * r) + ' starting runners' },
+    { id: 'armor', name: 'Armor', desc: 'Enemies and bosses take out fewer of your runners.', max: 8, base: 100, fx: r => (6 * r) + '% less damage' },
+    { id: 'mult', name: 'Multiplier Boost', desc: 'Every × gate multiplies a little higher.', max: 4, base: 150, fx: r => '× gates +' + fmtV(0.25 * r) },
+    { id: 'plus', name: 'Recruiter', desc: 'Every + gate adds more runners.', max: 5, base: 75, fx: r => '+ gates +' + (20 * r) + '%' },
+    { id: 'magnet', name: 'Coin Magnet', desc: 'Earn more coins from every enemy.', max: 5, base: 90, fx: r => '+' + (25 * r) + '% coins' }
+  ];
+  const cost = (u, r) => Math.round(u.base * Math.pow(2, r));
+  function loadMeta() {
+    const def = { coins: 0, level: 1, upg: { start: 0, armor: 0, mult: 0, plus: 0, magnet: 0 } };
+    try {
+      const m = JSON.parse(localStorage.getItem('gateRushSave') || 'null');
+      if (m) return { coins: m.coins | 0, level: Math.max(1, m.level | 0), upg: Object.assign(def.upg, m.upg || {}) };
+    } catch (e) {}
+    return def;
+  }
+  const meta = loadMeta();
+  function saveMeta() {
+    try { localStorage.setItem('gateRushSave', JSON.stringify({ coins: meta.coins, level, upg: meta.upg })); } catch (e) {}
+  }
+  const dmgMul = () => 1 - 0.06 * meta.upg.armor;
+  const coinMul = () => 1 + 0.25 * meta.upg.magnet;
+  // Coins earned during a run are held separately and only banked when you beat the boss.
+  function gainCoins(n) { levelCoins += n; updateHud(); }
+  function updateHud() {
+    const inRun = mode === 'play' || mode === 'wait';
+    $('hudLevel').textContent = level;
+    $('hudCoins').textContent = meta.coins + (inRun ? levelCoins : 0);
+  }
+
+  const rnd = (a, b) => a + Math.floor(Math.random() * (b - a + 1));
+  const pick = arr => arr[Math.floor(Math.random() * arr.length)];
+  function shuffle(a) { for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; }
+
+  function applyOp(n, g) {
+    let r = n;
+    if (g.op === '+') r = n + effV(g);
+    else if (g.op === '-') r = n - g.v;
+    else if (g.op === 'x') r = Math.floor(n * effV(g));
+    else if (g.op === '/') r = Math.floor(n / g.v);
+    return Math.max(0, r);
+  }
+  const isGood = g => g.op === '+' || g.op === 'x';
+  const label = g => (g.op === 'x' ? '×' : g.op === '/' ? '÷' : g.op === '-' ? '−' : '+') + fmtV(effV(g));
+  function effV(g) {
+    if (g.op === '+') return Math.round(g.v * (1 + 0.2 * meta.upg.plus));
+    if (g.op === 'x') return g.v + 0.25 * meta.upg.mult;
+    return g.v;
+  }
+  function fmtV(v) { return String(Math.round(v * 100) / 100); }
+
+  function goodGate(est) {
+    const r = Math.random();
+    if (r < 0.45) return { op: '+', v: rnd(4, 10) + level * 2 + Math.floor(est * 0.15) };
+    if (r < 0.88) return { op: 'x', v: 2 };
+    return { op: 'x', v: 3 };
+  }
+  function badGate(est) {
+    const r = Math.random();
+    if (r < 0.55) return { op: '-', v: rnd(5, 12) + level * 3 + Math.floor(est * 0.3) };
+    if (r < 0.85) return { op: '/', v: 2 };
+    return { op: '/', v: 3 };
+  }
+
+  function buildLevel() {
+    objects = [];
+    const rows = Math.min(7 + level * 2, 22);
+    let est = 10, p = 60;
+    for (let i = 0; i < rows; i++) {
+      if (i % 3 === 2) {
+        // enemy row: one lane, two lanes, or the whole road
+        const r = Math.random();
+        if (r < 0.25 + Math.min(level * 0.03, 0.2)) {
+          const n = Math.max(2, Math.floor(est * (0.12 + level * 0.01)));
+          objects.push({ type: 'enemy', p, lanes: [0, 1, 2], n, shift: 0, v: 3.5 + Math.min(level, 10) * 0.3 });
+          est -= n;
+        } else {
+          const n = Math.max(3, Math.floor(est * (0.4 + Math.random() * 0.4)));
+          const lanes = r < 0.65 ? [rnd(0, 2)] : shuffle([0, 1, 2]).slice(0, 2);
+          objects.push({ type: 'enemy', p, lanes, n, shift: 0, v: 3.5 + Math.min(level, 10) * 0.3 });
+        }
+      } else {
+        const goods = Math.random() < 0.35 ? 2 : 1;
+        const gates = shuffle([0, 1, 2].map(k => (k < goods ? goodGate(est) : badGate(est))));
+        objects.push({ type: 'gates', p, gates });
+        est = Math.max(...gates.map(g => applyOp(est, g)));
+      }
+      p += 42;
+    }
+    const bossN = Math.max(8, Math.floor(est * (0.55 + Math.min(level * 0.03, 0.2))));
+    objects.push({ type: 'boss', p: p + 20, n: bossN });
+    trackLen = p + 20;
+  }
+
+  function startLevel() {
+    count = 10 + 5 * meta.upg.start; levelCoins = 0; dist = 0; laneIdx = 1; px = 0; floaters = []; battle = null; shake = 0;
+    speed = SPEED_BASE + Math.min(level, 12) * 0.8;
+    buildLevel();
+    mode = 'play';
+    $('menu').hidden = true; $('endScreen').hidden = true; $('hud').hidden = false;
+    $('shop').hidden = true;
+    updateHud();
+  }
+
+  function endGame(won, bossN) {
+    mode = 'end';
+    shopNext = false;
+    if (won) {
+      // rewards grow with the square root of enemy size, so huge crowds don't flood the shop
+      levelCoins += Math.ceil((Math.sqrt(bossN || 0) * 2 + level * 5) * coinMul());
+      meta.coins += levelCoins;
+      const cleared = level;
+      level++;
+      if (level > best) { best = level; saveBest(best); }
+      shopNext = cleared % 5 === 0;
+      $('endTitle').textContent = 'Level ' + cleared + ' cleared';
+      $('endText').textContent = 'You beat the boss with ' + count + ' left standing and earned ' + levelCoins + ' coins this level. ' +
+        (shopNext ? 'The upgrade shop is open!' : 'The shop opens after level ' + Math.ceil(cleared / 5) * 5 + '.');
+      $('endBtn').textContent = shopNext ? 'Open shop' : 'Next level';
+    } else {
+      $('endTitle').textContent = 'Crowd wiped out';
+      $('endText').textContent = 'You made it ' + Math.floor(Math.min(dist / trackLen, 1) * 100) + '% of the way through level ' + level + '. The ' + levelCoins + ' coins from this run were lost. Look for × gates early, since they pay off more later.';
+      $('endBtn').textContent = 'Try again';
+    }
+    saveMeta(); updateHud();
+    $('endScreen').hidden = false;
+    $('endBtn').focus();
+  }
+
+  function addFloater(text, color, x, y, coin) { floaters.push({ text, color, x, y, t: 0, coin: !!coin }); }
+
+  // ---------- input ----------
+  function move(dir) {
+    if (mode !== 'play' || battle) return;
+    laneIdx = Math.max(0, Math.min(2, laneIdx + dir));
+  }
+  window.addEventListener('keydown', e => {
+    if (e.key === 'ArrowLeft' || e.key === 'a' || e.key === 'A') { move(-1); e.preventDefault(); }
+    if (e.key === 'ArrowRight' || e.key === 'd' || e.key === 'D') { move(1); e.preventDefault(); }
+  });
+  let touchX = null, touchY = null;
+  canvas.addEventListener('pointerdown', e => { touchX = e.clientX; touchY = e.clientY; });
+  canvas.addEventListener('pointerup', e => {
+    if (touchX === null) return;
+    const dx = e.clientX - touchX;
+    if (Math.abs(dx) > 25) move(dx > 0 ? 1 : -1);
+    else {
+      const r = canvas.getBoundingClientRect();
+      const rel = (e.clientX - r.left) / r.width;
+      if (rel < 0.4) move(-1); else if (rel > 0.6) move(1);
+    }
+    touchX = null;
+  });
+
+  // ---------- music: a small synthesized chiptune loop (A minor, Am-F-C-G) ----------
+  const Music = (() => {
+    let ac = null, master = null, timer = null, step = 0, nextT = 0, noiseBuf = null;
+    let muted = false;
+    try { muted = localStorage.getItem('gateRushMuted') === '1'; } catch (e) {}
+    const s16 = 60 / 138 / 4;
+    const mtof = m => 440 * Math.pow(2, (m - 69) / 12);
+    const bass = [45, 41, 48, 43];
+    const arps = [[69, 72, 76, 81], [65, 69, 72, 77], [67, 72, 76, 79], [67, 71, 74, 79]];
+    const pattern = [0, 1, 2, 1, 3, 2, 1, 2];
+    const vol = () => (muted ? 0 : 0.14);
+
+    function tone(freq, t, dur, type, v) {
+      const o = ac.createOscillator(), g = ac.createGain();
+      o.type = type; o.frequency.setValueAtTime(freq, t);
+      g.gain.setValueAtTime(0.0001, t);
+      g.gain.exponentialRampToValueAtTime(v, t + 0.01);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+      o.connect(g); g.connect(master); o.start(t); o.stop(t + dur + 0.02);
+    }
+    function kick(t) {
+      const o = ac.createOscillator(), g = ac.createGain();
+      o.frequency.setValueAtTime(140, t); o.frequency.exponentialRampToValueAtTime(40, t + 0.15);
+      g.gain.setValueAtTime(0.9, t); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.18);
+      o.connect(g); g.connect(master); o.start(t); o.stop(t + 0.2);
+    }
+    function noise(t, dur, v, hp) {
+      const src = ac.createBufferSource(), f = ac.createBiquadFilter(), g = ac.createGain();
+      src.buffer = noiseBuf; f.type = 'highpass'; f.frequency.value = hp;
+      g.gain.setValueAtTime(v, t); g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+      src.connect(f); f.connect(g); g.connect(master); src.start(t); src.stop(t + dur + 0.02);
+    }
+    function playStep(t) {
+      const s = step % 16, bar = Math.floor(step / 16) % 4;
+      if (s % 4 === 0) kick(t);
+      if (s === 4 || s === 12) noise(t, 0.12, 0.35, 1500);
+      if (s % 2 === 1) noise(t, 0.04, 0.15, 7000);
+      if (s % 2 === 0) tone(mtof(bass[bar] + (s % 4 === 2 ? 12 : 0)), t, s16 * 1.8, 'triangle', 0.5);
+      if (s % 2 === 0) tone(mtof(arps[bar][pattern[s / 2]]), t, s16 * 1.6, 'square', 0.12);
+    }
+    function tick() {
+      while (nextT < ac.currentTime + 0.15) { playStep(nextT); nextT += s16; step++; }
+    }
+    function start() {
+      try {
+        if (!ac) {
+          const AC = window.AudioContext || window.webkitAudioContext;
+          if (!AC) return;
+          ac = new AC();
+          master = ac.createGain(); master.gain.value = vol(); master.connect(ac.destination);
+          noiseBuf = ac.createBuffer(1, ac.sampleRate, ac.sampleRate);
+          const d = noiseBuf.getChannelData(0); for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
+        }
+        if (ac.state === 'suspended') ac.resume();
+        if (!timer) { nextT = ac.currentTime + 0.05; timer = setInterval(tick, 25); }
+      } catch (e) {}
+    }
+    function setMuted(m) {
+      muted = m;
+      try { localStorage.setItem('gateRushMuted', m ? '1' : '0'); } catch (e) {}
+      if (master) master.gain.setTargetAtTime(vol(), ac.currentTime, 0.05);
+    }
+    document.addEventListener('visibilitychange', () => {
+      if (!ac) return;
+      if (document.hidden) ac.suspend(); else ac.resume();
+    });
+    return { start, setMuted, isMuted: () => muted };
+  })();
+
+  const muteBtn = $('muteBtn');
+  function syncMute() {
+    muteBtn.textContent = Music.isMuted() ? '♪ MUSIC OFF' : '♪ MUSIC ON';
+    muteBtn.setAttribute('aria-pressed', String(Music.isMuted()));
+  }
+  muteBtn.addEventListener('click', () => { Music.setMuted(!Music.isMuted()); Music.start(); syncMute(); muteBtn.blur(); });
+  syncMute();
+
+  function renderShop() {
+    $('shopCoins').textContent = meta.coins;
+    $('shopDone').textContent = 'Continue to level ' + level;
+    $('upgList').innerHTML = UPGRADES.map(u => {
+      const r = meta.upg[u.id], maxed = r >= u.max, c = cost(u, r);
+      const pips = Array.from({ length: u.max }, (_, i) => '<span class="pip' + (i < r ? ' on' : '') + '"></span>').join('');
+      return '<div class="upg"><div><h3>' + u.name + '</h3><p>' + u.desc + '</p><p class="fx">' +
+        (r === 0 ? 'Next: ' + u.fx(1) : u.fx(r) + (maxed ? ' (maxed)' : ' → ' + u.fx(r + 1))) + '</p></div>' +
+        '<button class="buy" data-id="' + u.id + '"' + (maxed || meta.coins < c ? ' disabled' : '') + '>' + (maxed ? 'MAX' : c + ' coins') + '</button>' +
+        '<div class="pips">' + pips + '</div></div>';
+    }).join('');
+  }
+  function openShop() {
+    renderShop();
+    $('endScreen').hidden = true; $('shop').hidden = false;
+    $('shopDone').focus();
+  }
+  $('upgList').addEventListener('click', e => {
+    const b = e.target.closest('.buy');
+    if (!b || b.disabled) return;
+    const u = UPGRADES.find(x => x.id === b.dataset.id);
+    const r = meta.upg[u.id], c = cost(u, r);
+    if (r >= u.max || meta.coins < c) return;
+    meta.coins -= c; meta.upg[u.id] = r + 1;
+    saveMeta(); updateHud(); renderShop();
+  });
+  $('shopDone').addEventListener('click', () => { Music.start(); startLevel(); });
+
+  // Restart wipes level, coins and every shop upgrade. It needs two taps so it can't happen by accident.
+  function resetProgress() {
+    level = 1; meta.coins = 0;
+    Object.keys(meta.upg).forEach(k => { meta.upg[k] = 0; });
+    saveMeta(); updateHud();
+    $('startBtn').textContent = 'Play';
+    $('menuStats').textContent = 'Best: level ' + best + ' · 0 coins';
+  }
+  document.querySelectorAll('.restart').forEach(btn => {
+    let timer = null;
+    btn.addEventListener('click', () => {
+      if (btn.dataset.armed) {
+        clearTimeout(timer); delete btn.dataset.armed; btn.textContent = btn.dataset.label;
+        resetProgress(); Music.start(); startLevel(); btn.blur();
+        return;
+      }
+      btn.dataset.armed = '1';
+      btn.textContent = btn.id === 'restartHud' ? 'SURE?' : 'Tap again to erase coins and upgrades';
+      timer = setTimeout(() => { delete btn.dataset.armed; btn.textContent = btn.dataset.label; }, 3000);
+    });
+  });
+
+  $('startBtn').addEventListener('click', () => { Music.start(); startLevel(); });
+  $('endBtn').addEventListener('click', () => { Music.start(); if (shopNext) openShop(); else startLevel(); });
+
+  // ---------- projection ----------
+  function geo() {
+    const horizon = H * 0.3;
+    const base = H - Math.max(110, H * 0.17);
+    const half = Math.min(W * 0.46, 250);
+    return { horizon, base, half };
+  }
+  function proj(d, lx) {
+    const g = geo();
+    const s = PERSP / (Math.max(d, -PERSP * 0.6) + PERSP);
+    return { x: W / 2 + lx * g.half * 0.68 * s, y: g.horizon + (g.base - g.horizon) * s, s };
+  }
+
+  // ---------- update ----------
+  function update(dt) {
+    floaters.forEach(f => f.t += dt);
+    floaters = floaters.filter(f => f.t < 1.1);
+    shake = Math.max(0, shake - dt * 3);
+    if (mode !== 'play') return;
+
+    px += (LANES[laneIdx] - px) * Math.min(1, dt * 12);
+
+    if (battle) {
+      battle.t += dt;
+      const rate = Math.max(battle.start * 1.4, 20) * dt;
+      const k = Math.min(rate, battle.obj.n, count / dmgMul());
+      count = Math.max(0, count - k * dmgMul());
+      battle.obj.n = Math.max(0, battle.obj.n - k);
+      shake = reduceMotion ? 0 : 0.4;
+      if (battle.obj.n <= 0.001 || count <= 0.001) {
+        const won = battle.obj.n <= 0.001 && Math.floor(count) >= 1;
+        count = Math.floor(count); battle.obj.n = Math.ceil(battle.obj.n);
+        const bossN = battle.start;
+        battle = null;
+        setTimeout(() => endGame(won, bossN), 350);
+        mode = 'wait';
+      }
+      return;
+    }
+
+    dist += speed * dt;
+    // enemies start charging toward the player once they get close
+    for (const o of objects) {
+      if (o.type === 'enemy' && !o.done && o.p - dist < 75) {
+        o.p -= o.v * dt; o.moving = true;
+        // slide sideways toward the player's lane, staying on the road
+        if (o.lanes.length < 3 && o.p - dist > 4) {
+          const xs = o.lanes.map(li => LANES[li]);
+          const minShift = -1 - Math.min(...xs), maxShift = 1 - Math.max(...xs);
+          const nearest = xs.reduce((a, b) => Math.abs(b + o.shift - px) < Math.abs(a + o.shift - px) ? b : a);
+          const target = Math.max(minShift, Math.min(maxShift, px - nearest));
+          const turn = Math.min(0.6 + level * 0.07, 1.3) * dt;
+          o.shift += Math.max(-turn, Math.min(turn, target - o.shift));
+        }
+      }
+    }
+    const myLane = Math.round(px) + 1;
+
+    for (const o of objects) {
+      if (o.done) continue;
+      const d = o.p - dist;
+      if (d > 0) continue;
+      o.done = true;
+      const pp = proj(0, px);
+      if (o.type === 'gates') {
+        const g = o.gates[myLane];
+        const before = count;
+        count = applyOp(count, g);
+        o.hit = myLane;
+        addFloater(label(g), isGood(g) ? C.good : C.bad, pp.x, pp.y - 80);
+        if (count < before) shake = reduceMotion ? 0 : 0.5;
+        if (count <= 0) { mode = 'wait'; setTimeout(() => endGame(false), 400); }
+      } else if (o.type === 'enemy') {
+        if (o.lanes.some(li => Math.abs(LANES[li] + o.shift - px) < 0.55)) {
+          const loss = Math.ceil(o.n * dmgMul());
+          count = Math.max(0, count - loss);
+          addFloater('−' + loss, C.foe, pp.x, pp.y - 80);
+          shake = reduceMotion ? 0 : 0.7;
+          o.hitEnemy = true;
+          if (count <= 0) { mode = 'wait'; setTimeout(() => endGame(false), 400); }
+          else {
+            const gain = Math.max(1, Math.ceil(Math.sqrt(o.n) * coinMul()));
+            gainCoins(gain);
+            addFloater('+' + gain, C.hero, pp.x, pp.y - 130, true);
+          }
+        }
+      } else if (o.type === 'boss') {
+        o.done = false;
+        dist = o.p;
+        battle = { obj: o, t: 0, start: o.n };
+      }
+    }
+  }
+
+  // ---------- drawing ----------
+  function roundRect(x, y, w, h, r) {
+    ctx.beginPath();
+    ctx.moveTo(x + r, y); ctx.arcTo(x + w, y, x + w, y + h, r); ctx.arcTo(x + w, y + h, x, y + h, r);
+    ctx.arcTo(x, y + h, x, y, r); ctx.arcTo(x, y, x + w, y, r); ctx.closePath();
+  }
+  function text(str, x, y, size, color, stroke) {
+    ctx.font = `${Math.round(size)}px ${DISPLAY}`;
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    if (stroke) { ctx.lineWidth = Math.max(2, size / 6); ctx.strokeStyle = stroke; ctx.lineJoin = 'round'; ctx.strokeText(str, x, y); }
+    ctx.fillStyle = color; ctx.fillText(str, x, y);
+  }
+  function fmt(n) {
+    n = Math.floor(n);
+    if (n < 10000) return String(n);
+    if (n < 1e6) return (n / 1000).toFixed(1) + 'k';
+    const units = ['M', 'B', 'T', 'Qa', 'Qi', 'Sx', 'Sp', 'Oc', 'No', 'Dc'];
+    const tier = Math.floor(Math.log10(n) / 3) - 2;
+    if (tier >= units.length) return n.toExponential(2).replace('e+', 'e');
+    const v = n / Math.pow(1000, tier + 2);
+    return (v >= 100 ? v.toFixed(0) : v.toFixed(2)) + units[tier];
+  }
+
+  function drawScene() {
+    const g = geo();
+    // sky
+    const sky = ctx.createLinearGradient(0, 0, 0, g.horizon);
+    sky.addColorStop(0, C.skyTop); sky.addColorStop(0.6, C.skyMid); sky.addColorStop(1, C.skyLow);
+    ctx.fillStyle = sky; ctx.fillRect(0, 0, W, g.horizon + 1);
+    // sun
+    ctx.fillStyle = 'rgba(255, 210, 120, 0.9)';
+    ctx.beginPath(); ctx.arc(W / 2, g.horizon, Math.min(W, 500) * 0.12, Math.PI, 0); ctx.fill();
+    // ground
+    ctx.fillStyle = C.ground; ctx.fillRect(0, g.horizon, W, H - g.horizon);
+
+    // road trapezoid
+    const far = proj(VIEW, 0), near = proj(-PERSP * 0.6, 0);
+    const fw = g.half * far.s, nw = g.half * near.s;
+    ctx.fillStyle = C.road;
+    ctx.beginPath();
+    ctx.moveTo(W / 2 - fw, far.y); ctx.lineTo(W / 2 + fw, far.y);
+    ctx.lineTo(W / 2 + nw, near.y); ctx.lineTo(W / 2 - nw, near.y); ctx.closePath(); ctx.fill();
+    ctx.strokeStyle = C.roadEdge; ctx.lineWidth = 3;
+    ctx.beginPath(); ctx.moveTo(W / 2 - fw, far.y); ctx.lineTo(W / 2 - nw, near.y);
+    ctx.moveTo(W / 2 + fw, far.y); ctx.lineTo(W / 2 + nw, near.y); ctx.stroke();
+
+    // moving lane dashes
+    ctx.fillStyle = C.stripe;
+    const step = 10, off = dist % step;
+    for (let d = VIEW - off; d > -PERSP * 0.5; d -= step) {
+      const a = proj(d, 0), b = proj(d - 4, 0);
+      for (const lx of [-0.5, 0.5]) {
+        const xa = W / 2 + lx * g.half * 0.68 * a.s * 1.0, xb = W / 2 + lx * g.half * 0.68 * b.s;
+        const wa = 3 * a.s, wb = 3 * b.s;
+        ctx.beginPath(); ctx.moveTo(xa - wa, a.y); ctx.lineTo(xa + wa, a.y); ctx.lineTo(xb + wb, b.y); ctx.lineTo(xb - wb, b.y); ctx.fill();
+      }
+    }
+    // finish line
+    const fin = trackLen - dist;
+    if (fin < VIEW && fin > -10) {
+      const f = proj(fin, 0), wv = g.half * f.s, n = 12, cw = (wv * 2) / n, ch = Math.max(3, 14 * f.s);
+      for (let i = 0; i < n; i++) for (let j = 0; j < 2; j++) {
+        ctx.fillStyle = (i + j) % 2 ? C.ink : C.inkDark;
+        ctx.fillRect(W / 2 - wv + i * cw, f.y + j * ch / 2 - ch / 2, cw + 0.5, ch / 2);
+      }
+    }
+  }
+
+  function drawGates(o, d) {
+    const g = geo();
+    const p = proj(d, 0);
+    const laneW = g.half * 0.68 * p.s;
+    const h = 120 * p.s, w = laneW * 0.92;
+    o.gates.forEach((gate, i) => {
+      const cx = W / 2 + LANES[i] * laneW;
+      const good = isGood(gate);
+      const col = good ? C.good : C.bad;
+      const passed = o.done && o.hit === i;
+      ctx.globalAlpha = o.done ? (passed ? 0.25 : 0.5) : 0.82;
+      ctx.fillStyle = col;
+      roundRect(cx - w / 2, p.y - h, w, h, Math.max(2, 10 * p.s)); ctx.fill();
+      ctx.globalAlpha = 1;
+      ctx.lineWidth = Math.max(1, 4 * p.s); ctx.strokeStyle = 'rgba(255,255,255,0.75)'; ctx.stroke();
+      if (p.s > 0.12) {
+        // shrink long labels like ×2.75 so they always fit inside the gate
+        const str = label(gate);
+        let fs = Math.max(10, 44 * p.s);
+        ctx.font = `${Math.round(fs)}px ${DISPLAY}`;
+        const tw = ctx.measureText(str).width;
+        if (tw > w * 0.86) fs *= (w * 0.86) / tw;
+        text(str, cx, p.y - h / 2, fs, C.ink, 'rgba(27,19,64,0.6)');
+      }
+    });
+  }
+
+  function drawFigure(x, y, r, body, dark) {
+    ctx.fillStyle = dark; ctx.beginPath(); ctx.ellipse(x, y + r * 0.2, r * 0.9, r * 0.35, 0, 0, Math.PI * 2); ctx.globalAlpha = 0.35; ctx.fill(); ctx.globalAlpha = 1;
+    ctx.fillStyle = body;
+    ctx.beginPath(); ctx.ellipse(x, y - r * 0.9, r * 0.75, r, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.arc(x, y - r * 2.3, r * 0.6, 0, Math.PI * 2); ctx.fill();
+  }
+
+  function crowdPositions(n, max) {
+    const pts = []; const m = Math.min(n, max);
+    for (let i = 0; i < m; i++) {
+      const a = i * 2.39996, rr = Math.sqrt(i) * 0.55;
+      pts.push([Math.cos(a) * rr, Math.sin(a) * rr * 0.45]);
+    }
+    return pts;
+  }
+
+  function drawEnemy(o, d) {
+    if (o.done && !o.hitEnemy) { /* passed by */ }
+    if (o.done && o.hitEnemy) return;
+    const g = geo(); const p = proj(d, 0); const laneW = g.half * 0.68 * p.s;
+    const per = o.n;
+    o.lanes.forEach(li => {
+      const cx = W / 2 + (LANES[li] + o.shift) * laneW;
+      const r = 9 * p.s;
+      const t = performance.now() / 60;
+      crowdPositions(per, 14).sort((a, b) => a[1] - b[1]).forEach(([dx, dy], i) => {
+        const hop = o.moving && !reduceMotion ? Math.abs(Math.sin(t + i * 1.7)) * r * 0.6 : 0;
+        drawFigure(cx + dx * r * 2.2, p.y + dy * r * 2.2 - hop, r, C.foe, C.foeDark);
+      });
+      if (p.s > 0.12) {
+        const tw = Math.max(26, 52 * p.s), th = Math.max(16, 28 * p.s);
+        ctx.fillStyle = C.foeDark; roundRect(cx - tw / 2, p.y - r * 5 - th, tw, th, th / 3); ctx.fill();
+        text(fmt(per), cx, p.y - r * 5 - th / 2, Math.max(10, 20 * p.s), C.ink);
+      }
+    });
+  }
+
+  function drawBoss(o, d) {
+    const p = proj(d, 0);
+    const r = 34 * p.s;
+    const wob = battle ? Math.sin(battle.t * 30) * 3 : 0;
+    drawFigure(W / 2 + wob, p.y, r, C.foe, C.foeDark);
+    // horns
+    ctx.fillStyle = C.foeDark;
+    [-1, 1].forEach(s => { ctx.beginPath(); ctx.moveTo(W / 2 + wob + s * r * 0.3, p.y - r * 2.7); ctx.lineTo(W / 2 + wob + s * r * 0.8, p.y - r * 3.4); ctx.lineTo(W / 2 + wob + s * r * 0.6, p.y - r * 2.4); ctx.fill(); });
+    if (p.s > 0.1) {
+      const tw = Math.max(40, 110 * p.s), th = Math.max(18, 40 * p.s);
+      ctx.fillStyle = C.foeDark; roundRect(W / 2 - tw / 2, p.y - r * 3.7 - th, tw, th, th / 3); ctx.fill();
+      text(fmt(o.n), W / 2, p.y - r * 3.7 - th / 2, Math.max(12, 28 * p.s), C.ink);
+      if (p.s > 0.3) text('BOSS', W / 2, p.y + r * 0.9, Math.max(10, 16 * p.s), C.ink, C.foeDark);
+    }
+  }
+
+  function drawPlayer() {
+    const p = proj(0, px);
+    const r = 10;
+    const bob = mode === 'play' && !battle && !reduceMotion ? Math.sin(performance.now() / 70) * 1.5 : 0;
+    crowdPositions(Math.max(1, Math.ceil(count)), 40).sort((a, b) => a[1] - b[1])
+      .forEach(([dx, dy], i) => drawFigure(p.x + dx * r * 2.1, p.y + dy * r * 2.1 + (i % 2 ? bob : -bob), r, C.hero, C.heroDark));
+    const tw = 74, th = 34;
+    ctx.fillStyle = C.inkDark; roundRect(p.x - tw / 2, p.y + 26, tw, th, 12); ctx.fill();
+    ctx.strokeStyle = C.hero; ctx.lineWidth = 2; ctx.stroke();
+    text(fmt(count), p.x, p.y + 26 + th / 2 + 1, 20, C.hero);
+  }
+
+  function draw() {
+    ctx.save();
+    if (shake > 0) ctx.translate((Math.random() - 0.5) * 10 * shake, (Math.random() - 0.5) * 10 * shake);
+    ctx.clearRect(-20, -20, W + 40, H + 40);
+    drawScene();
+    // far to near
+    const vis = objects.map(o => ({ o, d: o.p - dist })).filter(e => e.d < VIEW && e.d > -PERSP * 0.55).sort((a, b) => b.d - a.d);
+    let playerDrawn = false;
+    for (const { o, d } of vis) {
+      if (!playerDrawn && d < 0) { drawPlayer(); playerDrawn = true; }
+      if (o.type === 'gates') drawGates(o, d);
+      else if (o.type === 'enemy') drawEnemy(o, d);
+      else drawBoss(o, Math.max(d, 6));
+    }
+    if (!playerDrawn) drawPlayer();
+
+    floaters.forEach(f => {
+      ctx.globalAlpha = Math.max(0, 1 - f.t / 1.1);
+      const fy = f.y - f.t * 60;
+      text(f.text, f.x, fy, f.coin ? 28 : 36, f.color, C.inkDark);
+      if (f.coin) {
+        const w = ctx.measureText(f.text).width;
+        ctx.fillStyle = C.hero; ctx.strokeStyle = C.heroDark; ctx.lineWidth = 3;
+        ctx.beginPath(); ctx.arc(f.x + w / 2 + 16, fy, 10, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+      }
+      ctx.globalAlpha = 1;
+    });
+
+    // progress bar
+    if (mode !== 'menu' && trackLen) {
+      const bw = Math.min(W - 32, 320), bx = (W - bw) / 2, by = 56;
+      ctx.fillStyle = 'rgba(27,19,64,0.8)'; roundRect(bx, by, bw, 8, 4); ctx.fill();
+      ctx.fillStyle = C.hero; roundRect(bx, by, Math.max(8, bw * Math.min(dist / trackLen, 1)), 8, 4); ctx.fill();
+    }
+    ctx.restore();
+  }
+
+  // ---------- loop ----------
+  let last = performance.now();
+  function frame(now) {
+    const dt = Math.min(0.05, (now - last) / 1000); last = now;
+    if (mode === 'menu') { dist += 10 * dt; }
+    update(dt); draw();
+    requestAnimationFrame(frame);
+  }
+
+  resize();
+  level = meta.level;
+  buildLevel();
+  updateHud();
+  if (level > 1) $('startBtn').textContent = 'Continue level ' + level;
+  $('menuStats').textContent = 'Best: level ' + best + ' · ' + meta.coins + ' coins';
+  if (document.fonts && document.fonts.load) document.fonts.load('20px Bungee').catch(() => {});
+  requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>
